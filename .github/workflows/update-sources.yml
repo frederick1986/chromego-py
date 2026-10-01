@@ -25,9 +25,30 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: 运行 update_sources.py 生成 4 个文件
+      - name: 安装输出生成依赖
+        run: python -m pip install -r requirements.txt
+
+      - name: 更新订阅地址并生成 outputs 文件
         run: |
           python update_sources.py
+          python merge_sources.py
+          python main.py
+
+      - name: 验证生成的客户端订阅
+        run: |
+          python - <<'PY'
+          import base64
+          from pathlib import Path
+          import yaml
+          output = Path('outputs')
+          proxies = yaml.safe_load((output / 'clash_meta.yaml').read_text(encoding='utf-8'))['proxies']
+          raw = (output / 'sub_raw.txt').read_text(encoding='utf-8')
+          encoded = (output / 'sub_base64.txt').read_text(encoding='utf-8')
+          assert proxies, '未提取到节点，停止提交'
+          assert raw.strip(), '未生成有效客户端 URI，停止提交'
+          assert base64.b64decode(encoded).decode('utf-8') == raw, 'Base64 与明文订阅不一致'
+          print(f'已验证 {len(proxies)} 个节点、{len(raw.splitlines())} 条客户端 URI')
+          PY
 
       - name: 配置 Git 用户
         run: |
@@ -36,18 +57,18 @@ jobs:
 
       - name: 拉取最新代码并 rebase
         run: |
-          git pull --rebase --autostash origin main || echo "Rebase done"
+          git pull --rebase --autostash origin main
 
-      - name: 提交并推送 4 个文件
+      - name: 提交并推送订阅地址和 outputs 文件
         run: |
-          git add urls/EdgeGo_sources.txt urls/ChromeGo_sources.txt urls/FirefoxFQ_sources.txt urls/sources.txt
+          git add urls/EdgeGo_sources.txt urls/ChromeGo_sources.txt urls/FirefoxFQ_sources.txt urls/sources.txt outputs/
           
           if git diff --cached --quiet; then
-            echo "✅ 四个文件均无变化，无需提交"
+            echo "✅ 订阅地址和 outputs 均无变化，无需提交"
           else
-            git commit -m "chore: 更新四个 sources.txt 文件 (手动触发)"
+            git commit -m "chore: 更新订阅地址和 outputs 文件 (手动触发)"
             git push origin main
-            echo "✅ 已提交并推送 4 个文件"
+            echo "✅ 已提交并推送订阅地址和 outputs 文件"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
